@@ -152,6 +152,8 @@ class TransportLayer:  # TCP, UDP, ICMP
 		self.source_port = src_port
 		self.target_port = dst_port
 		self.protocol = port_dictionary.get(str(self.target_port))
+		if self.protocol is None:
+			self.protocol = ''
 		self.payload = payload
 
 	def print_info(self):
@@ -209,13 +211,43 @@ class ICMP(TransportLayer):
 
 class Communication:
 	def __init__(self, frame: DataLinkFrame):
-		self.type = frame.network_layer.protocol
+		if frame.ether_type_name == 'ARP':
+			self.type = 'ARP'
+			self.operation = frame.network_layer.operation_name
+		else:
+			self.type = frame.network_layer.protocol_name + '/' + frame.network_layer.transport_layer.protocol
+			self.operation = 'None'
+		self.complete = False
 		self.client_ip = frame.network_layer.source_ip
 		self.server_ip = frame.network_layer.destination_ip
 		self.frames: List[DataLinkFrame] = []
-
-	def add_frame(self, frame):
 		self.frames.append(frame)
+
+	def add_last_frame(self, frame: DataLinkFrame):
+		self.complete = True
+		self.frames.append(frame)
+
+	def add_frame(self, frame: DataLinkFrame):
+		self.frames.append(frame)
+
+		if frame.ether_type_name == 'ARP':
+			if frame.network_layer.operation_name == 'Reply':
+				if self.operation == 'Request':
+					self.complete = True
+			if frame.network_layer.operation_name == 'Request':
+				if self.operation == 'Reply':
+					self.complete = True
+
+	def print_info(self):
+		print("\n\n-- COMMUNICATION --")
+		print("Type: {} Complete: {}".format(self.type, self.complete))
+		print("Client IP: {} Server IP: {}".format(self.client_ip, self.server_ip))
+		print("Frames: {}".format(len(self.frames)))
+		self.print_frames()
+
+	def return_str(self):
+		return "Type: {} Complete: {}".format(self.type, self.complete) +\
+		       "Client IP: {} Server IP: {}".format(self.client_ip, self.server_ip)
 
 	def print_frames(self):
 		for frame in self.frames:
@@ -233,14 +265,35 @@ def ip_match(frame: DataLinkFrame, com: Communication):
 
 
 def insert_to_communications(frame: DataLinkFrame, communications: List[Communication]):
-	for com in communications:
-		if ip_match(frame, com):
-			com.add_frame(frame)
+	if frame.ether_type_name == 'ARP':
+		for com in communications:
+			if ip_match(frame, com):
+				com.add_frame(frame)
+				return
+		communications.append(Communication(frame))
+
+	if frame.network_layer.protocol_name == 'TCP':
+		print("Another tcp... ")
+		if frame.network_layer.transport_layer.flags.__contains__('SYN'):
+			print("Found new COM")
+			communications.append(Communication(frame))
 			return
-	communications.append(Communication(frame))
+		elif frame.network_layer.transport_layer.flags.__contains__('FIN'):
+			print("Closed a COM")
+			for com in communications:
+				if ip_match(frame, com):
+					if not com.complete:
+						com.add_last_frame(frame)
+						return
+		else:
+			for com in communications:
+				if ip_match(frame, com):
+					if not com.complete:
+						com.add_frame(frame)
+						return
 
 
 def print_all_communications(communications: List[Communication]):
 	print("\n")
 	for com in communications:
-		print("Client IP: {} Server IP: {} Frames: {}".format(com.client_ip, com.server_ip, len(com.frames)))
+		com.print_info()
