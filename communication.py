@@ -273,13 +273,10 @@ def insert_to_communications(frame: DataLinkFrame, communications: List[Communic
 		communications.append(Communication(frame))
 
 	if frame.network_layer.protocol_name == 'TCP':
-		print("Another tcp... ")
 		if frame.network_layer.transport_layer.flags.__contains__('SYN'):
-			print("Found new COM")
 			communications.append(Communication(frame))
 			return
 		elif frame.network_layer.transport_layer.flags.__contains__('FIN'):
-			print("Closed a COM")
 			for com in communications:
 				if ip_match(frame, com):
 					if not com.complete:
